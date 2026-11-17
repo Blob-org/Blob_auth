@@ -8,6 +8,8 @@ RUN bun install --frozen-lockfile --production --ignore-scripts
 
 COPY tsconfig.json openapi.yaml ./
 COPY src ./src
+# For `docker compose exec auth bun run reset-mfa <email>`.
+COPY scripts/reset-mfa.ts ./scripts/
 
 # The SQLite database lives in /data, mounted as a volume by compose.yaml.
 RUN mkdir /data && chown bun:bun /data

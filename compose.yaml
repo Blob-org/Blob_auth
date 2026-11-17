@@ -6,7 +6,8 @@ name: auth-service
 services:
   auth:
     build: .
-    # AUTH_PRIVATE_KEY comes from .env (create it with `bun run gen-key >> .env`).
+    # AUTH_PRIVATE_KEY and MFA_ENCRYPTION_KEY come from .env (create them with
+    # `bun run gen-key >> .env` and `bun run gen-mfa-key >> .env`).
     env_file: .env
     environment:
       PORT: "4000"

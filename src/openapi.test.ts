@@ -4,6 +4,7 @@ import { generatePrivateJwk } from "../scripts/gen-key";
 import { openDb } from "./db";
 import { loadSigningKey } from "./keys";
 import { createLogger } from "./log";
+import { createSecretBox, generateMfaKey } from "./mfa";
 import { createRoutes } from "./routes";
 
 // Served for people, not part of the API, so not in the spec.
@@ -23,6 +24,12 @@ const routes = createRoutes({
     trustProxy: false,
     eraseUrls: [],
     logger: createLogger({ service: "auth", write: () => {} }),
+    mfa: {
+        box: await createSecretBox(generateMfaKey()),
+        issuer: "test",
+        tokenTtlSeconds: 60,
+        maxAttempts: 5,
+    },
 });
 
 // Docs routes use neither the request body nor the server.

@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "bun --watch src/app.ts",
     "gen-key": "bun scripts/gen-key.ts",
+    "gen-mfa-key": "bun scripts/gen-mfa-key.ts",
+    "reset-mfa": "bun scripts/reset-mfa.ts",
     "prepare": "husky",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
@@ -23,6 +25,7 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "jose": "^6.2.12"
+    "jose": "^6.2.12",
+    "otpauth": "9.6.0"
   }
 }
