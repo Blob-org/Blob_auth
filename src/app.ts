@@ -72,6 +72,8 @@ export async function startServer(options: ServerOptions = {}) {
             Response.json({ error: "Not found" }, { status: 404 }),
         ),
     });
+    const { from, to } = config.db.migrated;
+    if (from !== to) config.logger.info("database migrated", { from, to });
     config.logger.info("listening", { port: server.port });
     return server;
 }

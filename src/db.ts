@@ -1,4 +1,5 @@
 import { Database } from "bun:sqlite";
+import { migrate } from "./migrate";
 
 export type User = {
     id: string;
@@ -27,46 +28,13 @@ export function openDb(path: string) {
     const db = new Database(path, { create: true, strict: true });
     db.run("PRAGMA journal_mode = WAL");
     db.run("PRAGMA foreign_keys = ON");
-    db.run(`CREATE TABLE IF NOT EXISTS users (
-        id TEXT PRIMARY KEY,
-        email TEXT NOT NULL UNIQUE,
-        password_hash TEXT NOT NULL,
-        created_at INTEGER NOT NULL
-    )`);
-    db.run(`CREATE TABLE IF NOT EXISTS refresh_tokens (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        token_hash TEXT NOT NULL UNIQUE,
-        expires_at INTEGER NOT NULL,
-        revoked_at INTEGER
-    )`);
-
-    db.run(`CREATE TABLE IF NOT EXISTS recovery_codes (
-        id TEXT PRIMARY KEY,
-        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-        code_hash TEXT NOT NULL,
-        used_at INTEGER
-    )`);
-    db.run(
-        "CREATE INDEX IF NOT EXISTS recovery_codes_user ON recovery_codes (user_id, code_hash)",
-    );
-
-    // CREATE TABLE IF NOT EXISTS leaves existing tables alone, so columns
-    // added later are added here when a database predates them.
-    function addColumn(table: string, column: string, definition: string) {
-        const columns = db
-            .query<{ name: string }, []>(`PRAGMA table_info(${table})`)
-            .all();
-        if (!columns.some((c) => c.name === column)) {
-            db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
-        }
-    }
-    addColumn("users", "totp_secret", "TEXT");
-    addColumn("users", "totp_enabled_at", "INTEGER");
-    addColumn("users", "totp_last_step", "INTEGER");
-    addColumn("refresh_tokens", "mfa", "INTEGER NOT NULL DEFAULT 0");
+    // Creates or upgrades the schema (src/migrations/*.sql).
+    const migrated = migrate(db);
 
     return {
+        // Schema versions before and after opening, for the startup log.
+        migrated,
+
         createUser(email: string, passwordHash: string): User {
             const user = {
                 id: crypto.randomUUID(),

@@ -967,3 +967,12 @@ test("opening an older database adds the MFA columns", () => {
     // Opening again doesn't try to add them twice.
     openDb(dbPath).close();
 });
+
+test("logs the schema migration at startup, once", async () => {
+    const dbPath = join(mkdtempSync(join(tmpdir(), "auth-")), "auth.sqlite");
+    const first = await setup({ dbPath });
+    expect(first.find("database migrated")).toMatchObject([{ from: 0, to: 2 }]);
+
+    const again = await setup({ dbPath });
+    expect(again.find("database migrated")).toEqual([]);
+});
