@@ -105,7 +105,8 @@ const { payload } = await jwtVerify(token, jwks, {
 | --- | --- |
 | `src/app.ts` | `startServer(options)`: reads config from options or env and starts `Bun.serve()`. |
 | `src/routes.ts` | All routes, token signing, cookies, CORS. |
-| `src/db.ts` | `bun:sqlite` schema and queries (`users`, `refresh_tokens`, `recovery_codes`), and adding columns to databases created before them. |
+| `src/db.ts` | `bun:sqlite` queries (`users`, `refresh_tokens`, `recovery_codes`). Opening the database runs the migrations. |
+| `src/migrate.ts`, `src/migrations/*.sql` | Versioned schema changes, see [Database migrations](#database-migrations). |
 | `src/mfa.ts` | TOTP checking, recovery codes, and encryption of TOTP secrets. |
 | `src/keys.ts` | Loads the private JWK and derives the public JWK. |
 | `openapi.yaml`, `src/docs.ts` | OpenAPI spec and the `/docs` + `/openapi.json` routes. `src/openapi.test.ts` fails if a route is added or removed without updating the spec. |
@@ -117,6 +118,20 @@ const { payload } = await jwtVerify(token, jwks, {
 | `scripts/check-issue.ts` | The PR `issue` check (see [PR rules](#pr-rules)). |
 | `.github/workflows/` | `ci.yml`, `pr-checks.yml` (labels, issue), `branch-name.yml`, `release.yml`. |
 | `Dockerfile`, `compose.yaml` | Container image and the local Docker stack. |
+
+## Database migrations
+
+The schema lives in numbered SQL files in `src/migrations/`. When auth_service opens the database it applies, in order, every file newer than the version stored in SQLite's `PRAGMA user_version`. Each file runs in one transaction together with its version bump, so a failed migration leaves the database at the previous version, and the next start retries it. A startup that changed something logs `database migrated` with `from` and `to`.
+
+To change the schema:
+
+1. Add the next file, e.g. `src/migrations/003_add_display_name.sql`, with plain SQL.
+2. List it in `MIGRATIONS` in `src/migrate.ts`. A test fails if the numbers have a gap.
+3. Change the queries in `src/db.ts` and add tests.
+
+Never edit a migration that has been released: databases that already ran it won't run it again. Fix mistakes with a new migration. Back up the database (the `auth-data` volume in Docker) before deploying a release that adds migrations.
+
+auth_service refuses to start on a database whose version is newer than its latest migration, so an older build can't run against a schema it doesn't understand. Databases created before migrations existed (version 0) are recognised and adopted as version 1, or as version 2 if they already have the MFA columns.
 
 ## Logging
 
@@ -133,6 +148,7 @@ Always present: `time` (ISO 8601), `level`, `service` (`"auth"`), `message`. Lin
 | Message | Level | Fields |
 | --- | --- | --- |
 | `listening` | info | `port` |
+| `database migrated` | info | `from`, `to`: schema versions, only when migrations ran |
 | `request` | info | Access log, one per request: `method`, `route` (the route pattern, `unmatched` for 404s), `status`, `ms`, and `userId` when the request was authenticated |
 | `user registered` | info | `userId` |
 | `register rejected` | warn | `reason` (`invalid_email`, `invalid_password`, `duplicate`, `rate_limited`), `email` (masked) or `clientIp` |
