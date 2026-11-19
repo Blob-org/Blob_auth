@@ -145,6 +145,17 @@ In Docker the `json-file` driver keeps the logs, rotated at 10 MB × 3 files (`c
 
 Husky runs Biome on commit. On push, it checks the branch name (see below) and runs typecheck and tests. GitHub Actions runs all three on every push to any branch and on every PR.
 
+**Security** (`.github/workflows/security.yml`, on every PR, on push to `main` and weekly):
+
+| Job | What it checks |
+| --- | --- |
+| `secrets (gitleaks)` | No secrets anywhere in the git history. |
+| `dependencies (bun audit)` | No known vulnerabilities of moderate severity or above in the dependencies. One dev-only advisory is ignored, with the reason given in the workflow. |
+| `codeql (…)` | Static analysis of the TypeScript and of the workflow files. Findings appear under the repo's **Security → Code scanning**. |
+| `image (trivy)` | Builds the Docker image and fails on HIGH or CRITICAL vulnerabilities that have a fix, or on secrets baked into the image. |
+
+Dependabot (`.github/dependabot.yml`) opens weekly update PRs for dependencies, the base image and the GitHub Actions. It skips releases younger than 14 days. Each release gets an SBOM (`sbom.cdx.json`, CycloneDX) listing everything in the image.
+
 ## PR rules
 
 `main` is protected: changes reach it only through a pull request, and these four checks must pass (admins included):
