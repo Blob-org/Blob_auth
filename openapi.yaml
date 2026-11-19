@@ -64,20 +64,28 @@ paths:
       description: |
         Returns an access token and sets the `refresh_token` cookie
         (`HttpOnly`, `SameSite=Strict`, 14 days).
+
+        If the user has MFA on, the password alone isn't enough: the response
+        is `{ mfaRequired: true, mfaToken }`, no cookie is set, and the client
+        finishes with `POST /login/mfa`.
       operationId: login
       security: []
       requestBody:
         $ref: "#/components/requestBodies/Credentials"
       responses:
         "200":
-          description: Logged in.
+          description: |
+            Logged in (`AccessToken`, cookie set), or the password was right
+            and a code is needed next (`MfaChallenge`, no cookie).
           headers:
             Set-Cookie:
               $ref: "#/components/headers/RefreshCookie"
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AccessToken"
+                oneOf:
+                  - $ref: "#/components/schemas/AccessToken"
+                  - $ref: "#/components/schemas/MfaChallenge"
         "401":
           description: Wrong email or password. The response doesn't say which.
           content:
@@ -86,6 +94,192 @@ paths:
                 $ref: "#/components/schemas/Error"
               example:
                 error: Invalid email or password
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /login/mfa:
+    post:
+      summary: Finish logging in with a code
+      description: |
+        The second step for users with MFA on. Send the `mfaToken` from
+        `POST /login` and either the 6-digit code from the authenticator app or
+        one of the recovery codes (case, spaces and dashes don't matter). Each
+        code works once.
+
+        The `mfaToken` lasts 5 minutes, allows 5 wrong codes and signs in once.
+        When it can't be used any more the response has `restart: true` and the
+        client should go back to the password step.
+      operationId: loginMfa
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [mfaToken, code]
+              properties:
+                mfaToken:
+                  type: string
+                code:
+                  type: string
+                  example: "123456"
+      responses:
+        "200":
+          description: Logged in. The access token's `amr` is `["pwd", "otp"]`.
+          headers:
+            Set-Cookie:
+              $ref: "#/components/headers/RefreshCookie"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AccessToken"
+        "401":
+          description: |
+            Wrong or already used code (try again), or `restart: true` when the
+            `mfaToken` is expired, invalid, used up or has had too many wrong
+            codes (log in again).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MfaError"
+              examples:
+                wrongCode:
+                  value:
+                    error: Invalid code
+                restart:
+                  value:
+                    error: Your sign-in expired. Sign in again.
+                    restart: true
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /mfa/setup:
+    post:
+      summary: Start setting up MFA
+      description: |
+        Creates a new TOTP secret for the caller and returns it with an
+        `otpauth://` link to show as a QR code. MFA isn't on until
+        `POST /mfa/enable` confirms a code. Calling it again replaces an
+        unfinished setup.
+      operationId: mfaSetup
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Scan `otpauthUrl` (or type `secret`) into an authenticator app.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [secret, otpauthUrl]
+                properties:
+                  secret:
+                    type: string
+                    description: Base32 TOTP secret.
+                  otpauthUrl:
+                    type: string
+                    example: otpauth://totp/Blob%20storage:me%40example.com?issuer=Blob%20storage&secret=JBSWY3DPEHPK3PXP&algorithm=SHA1&digits=6&period=30
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: MFA is already on.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /mfa/enable:
+    post:
+      summary: Turn MFA on
+      description: |
+        Confirms a code from the app set up with `POST /mfa/setup`, turns MFA
+        on and returns 10 recovery codes. They're shown only this once; each
+        works once in place of a code.
+      operationId: mfaEnable
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+                  example: "123456"
+      responses:
+        "200":
+          description: MFA is on.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [recoveryCodes]
+                properties:
+                  recoveryCodes:
+                    type: array
+                    items:
+                      type: string
+                      example: abcde-fghij
+        "400":
+          description: "`POST /mfa/setup` wasn't called first."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid access token, or wrong code.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: MFA is already on.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /mfa/disable:
+    post:
+      summary: Turn MFA off
+      description: Needs the password and a code (or a recovery code). Deletes the secret and the recovery codes.
+      operationId: mfaDisable
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password, code]
+              properties:
+                password:
+                  type: string
+                  format: password
+                code:
+                  type: string
+      responses:
+        "204":
+          description: MFA is off.
+        "400":
+          description: MFA isn't on.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Missing or invalid access token, wrong password or wrong code.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
         "429":
           $ref: "#/components/responses/TooManyRequests"
 
@@ -147,7 +341,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/User"
+                allOf:
+                  - $ref: "#/components/schemas/User"
+                  - type: object
+                    required: [mfaEnabled]
+                    properties:
+                      mfaEnabled:
+                        type: boolean
         "401":
           description: Missing, invalid or expired access token, or the user no longer exists.
           content:
@@ -181,6 +381,9 @@ paths:
                 password:
                   type: string
                   format: password
+                code:
+                  type: string
+                  description: Required when MFA is on. A TOTP or recovery code.
       responses:
         "204":
           description: The account and the user's data are gone.
@@ -261,6 +464,14 @@ components:
         type: string
 
   responses:
+    Unauthorized:
+      description: Missing, invalid or expired access token.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: Unauthorized
     TooManyRequests:
       description: More than 20 requests in a minute from this IP.
       content:
@@ -290,7 +501,30 @@ components:
           type: string
           description: |
             JWT signed with EdDSA. Claims: `sub` (user id), `iss`, `aud`
-            (`blob_storage`, `todos_service`), `iat`, `exp` (15 min).
+            (`blob_storage`, `todos_service`), `iat`, `exp` (15 min), and
+            `amr`: `["pwd"]`, or `["pwd", "otp"]` when the session was opened
+            with a second factor (kept across refreshes).
+
+    MfaChallenge:
+      type: object
+      required: [mfaRequired, mfaToken]
+      properties:
+        mfaRequired:
+          type: boolean
+          const: true
+        mfaToken:
+          type: string
+          description: Send to `POST /login/mfa` with a code. Valid for 5 minutes; not an access token.
+
+    MfaError:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+        restart:
+          type: boolean
+          description: Present and true when the client must log in again.
 
     Jwks:
       type: object

@@ -2,12 +2,15 @@ import { join } from "node:path";
 import { openDb } from "./db";
 import { loadSigningKey } from "./keys";
 import { createLogger } from "./log";
+import { createSecretBox } from "./mfa";
 import { type AuthConfig, createRoutes, instrument } from "./routes";
 
 export type ServerOptions = Partial<AuthConfig> & {
     port?: number;
     dbPath?: string;
     privateJwk?: string;
+    // MFA_ENCRYPTION_KEY: encrypts stored TOTP secrets.
+    mfaKey?: string;
 };
 
 export async function startServer(options: ServerOptions = {}) {
@@ -16,6 +19,13 @@ export async function startServer(options: ServerOptions = {}) {
     if (!privateJwk) {
         throw new Error(
             "Missing AUTH_PRIVATE_KEY. Run `bun run gen-key >> .env`.",
+        );
+    }
+
+    const mfaKey = options.mfaKey ?? env.MFA_ENCRYPTION_KEY;
+    if (!options.mfa && !mfaKey) {
+        throw new Error(
+            "Missing MFA_ENCRYPTION_KEY. Run `bun run gen-mfa-key >> .env`.",
         );
     }
 
@@ -47,6 +57,12 @@ export async function startServer(options: ServerOptions = {}) {
                 .map((url) => url.trim())
                 .filter(Boolean),
         logger: options.logger ?? createLogger({ service: "auth" }),
+        mfa: options.mfa ?? {
+            box: await createSecretBox(mfaKey ?? ""),
+            issuer: env.MFA_ISSUER ?? "Blob storage",
+            tokenTtlSeconds: 5 * 60,
+            maxAttempts: 5,
+        },
     };
 
     const server = Bun.serve({
