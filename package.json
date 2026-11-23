@@ -25,7 +25,7 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "jose": "^6.2.12",
+    "jose": "^6.2.17",
     "otpauth": "9.6.0"
   }
 }
