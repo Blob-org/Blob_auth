@@ -1,4 +1,4 @@
-# auth_service
+# Blob_auth
 
 Login service for the Blob_storage system. It stores users, issues short-lived JWT access tokens, and publishes its public key so other services (`blob_storage`, `todos_service`) can check tokens themselves without calling this service.
 
